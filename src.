@@ -1,1 +1,481 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
 
+// Helper function to calculate cost
+int mem_fw(int u, int d, int *dests, int nrid) {
+    int cost = 0;
+    for (int i = 0; i < nrid; i++) {
+        int dest = dests[i];
+        if (d == -1) {
+            if (dest > u) cost += (dest - u);
+        } else {
+            if (dest > u && dest <= d) {
+                int walk_up = dest - u;
+                int walk_down = d - dest;
+                cost += (walk_up < walk_down) ? walk_up : walk_down;
+            }
+        }
+    }
+    return cost;
+}
+
+int MinCostMemo(int i, int j, int nfl, int *dests, int nrid, int **mem) {
+    int k, min = 200000000, n;
+
+    // Base Case: i=0 (0th stop is Ground Floor)
+    if (i == 0) {
+        int f = mem_fw(0, -1, dests, nrid);
+        mem[0][j] = f;
+        return f;
+    }
+
+    // Check Table
+    if (mem[i][j] != -1) {
+        return mem[i][j];
+    }
+
+    // Recursive Step: Try all possible previous stops k (0 to j)
+    for (k = 0; k <= j; k++) {
+        int prev_cost;
+
+        if (mem[i-1][k] != -1)
+            prev_cost = mem[i-1][k];
+        else
+            prev_cost = MinCostMemo(i - 1, k, nfl, dests, nrid, mem);
+
+        n = prev_cost - mem_fw(k, -1, dests, nrid) + mem_fw(k, j, dests, nrid) + mem_fw(j, -1, dests, nrid);
+
+        if (n < min) {
+            min = n;
+        }
+    }
+
+    mem[i][j] = min;
+    return min;
+}
+
+int memoize_solve(int nrid, int nst, int *dests) {
+    int i, j, k;
+    int nfl = 0;
+    int min_total = 200000000;
+    int laststop = 0;
+
+    /* Find max floor */
+    for (i = 0; i < nrid; i++) {
+        if (dests[i] > nfl) nfl = dests[i];
+    }
+
+    if (nst > nfl) nst = nfl;
+
+    int **mem = malloc((nst + 1) * sizeof(int *));
+    if (!mem) {
+        fprintf(stderr, "Could not allocate memory\n");
+        return -1;
+    }
+
+    for (i = 0; i <= nst; i++) {
+        mem[i] = malloc((nfl + 1) * sizeof(int));
+        if (!mem[i]) {
+            fprintf(stderr, "Could not allocate memory\n");
+            return -1;
+        }
+        // Initialize with -1
+        for (j = 0; j <= nfl; j++) {
+            mem[i][j] = -1;
+        }
+    }
+
+    if (nst == 0) {
+        min_total = mem_fw(0, -1, dests, nrid);
+    } else {
+        // We iterate j (possible floors for the last stop)
+        for (j = 1; j <= nfl; j++) {
+            k = MinCostMemo(nst, j, nfl, dests, nrid, mem);
+            if (k < min_total) {
+                min_total = k;
+                laststop = j;
+            }
+        }
+    }
+
+    if (nst > 0) {
+        printf("Last stop at floor: %d\n", laststop);
+    } else {
+        printf("No lift stops\n");
+    }
+
+    printf("The minimum cost is: %d\n", min_total);
+
+    // Free memory
+    for (i = 0; i <= nst; i++) {
+        free(mem[i]);
+    }
+    free(mem);
+
+    return min_total;
+}
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+
+// Helper function to calculate cost between two stops u (lower) and d (upper)
+int brute_fw(int u, int d, int *dests, int nrid) {
+    int cost = 0;
+    for (int i = 0; i < nrid; i++) {
+        int dest = dests[i];
+
+        // Check if this passenger falls between stop u and stop d
+        // If d is -1, it means 'u' is the highest stop, so anyone above u handles here
+        if (d == -1) {
+            if (dest > u) {
+                cost += (dest - u);
+            }
+        }
+        // Normal case: Passenger is between stop u and stop d
+        else {
+            if (dest > u && dest <= d) {
+                int walk_up = dest - u;
+                int walk_down = d - dest;
+                cost += (walk_up < walk_down) ? walk_up : walk_down;
+            }
+        }
+    }
+    return cost;
+}
+
+int brute_solve(int nrid, int nst, int *dests) {
+    int i, nfl = 0;
+
+    // Find max floor
+    for (i = 0; i < nrid; i++) {
+        if (dests[i] > nfl) nfl = dests[i];
+    }
+
+    int k;
+    int metr = -1;
+    int min = 2000000000;
+    int *pin, *bestpin, *maxfl;
+
+    if (nst <= 0) {
+        printf("No lift stops\n");
+        return 0;
+    }
+
+    pin = malloc(nst * sizeof(int));
+    if (pin == NULL) {
+        fprintf(stderr, "Could not allocate memory");
+        return -1;
+    }
+    bestpin = malloc(nst * sizeof(int));
+    if (bestpin == NULL) {
+        fprintf(stderr, "Could not allocate memory");
+        free(pin);
+        return -1;
+    }
+    maxfl = malloc(nst * sizeof(int));
+    if (maxfl == NULL) {
+        fprintf(stderr, "Could not allocate memory");
+        free(pin);
+        free(bestpin);
+        return -1;
+    }
+
+    for (i = 0; i < nst; i++) {
+        pin[i] = 0;
+        bestpin[i] = 0;
+        // Limit the search space: highest stop cannot exceed max floor
+        maxfl[i] = nfl - nst + i + 1;
+    }
+
+    while (pin[0] != maxfl[0]) {
+        metr++;
+        for(int x=0; x<nst; x++) pin[x] = x + 1;
+
+        int has_more = 1;
+        while(has_more) {
+            int cost = 0;
+
+            // Cost from Ground (0) to first stop (pin[0])
+            cost += brute_fw(0, pin[0], dests, nrid);
+
+            // Cost between stops
+            for (k = 0; k < nst - 1; k++) {
+                cost += brute_fw(pin[k], pin[k+1], dests, nrid);
+            }
+
+            // Cost for anyone above the last stop
+            cost += brute_fw(pin[nst - 1], -1, dests, nrid);
+
+            if (cost < min) {
+                min = cost;
+                for (i = 0; i < nst; i++) bestpin[i] = pin[i];
+            }
+
+            // Find rightmost element that hasn't reached its max limit
+            int idx = nst - 1;
+            while (idx >= 0 && pin[idx] == nfl - (nst - 1 - idx)) {
+                idx--;
+            }
+
+            if (idx < 0) {
+                has_more = 0;
+            } else {
+                pin[idx]++;
+                for (int j = idx + 1; j < nst; j++) {
+                    pin[j] = pin[j - 1] + 1;
+                }
+            }
+        }
+        break;
+    }
+
+    printf("Lift stops are:");
+    for (i = 0; i < nst; i++) {
+        printf(" %d", bestpin[i]);
+    }
+    putchar('\n');
+    printf("The minimum cost is: %d\n", min);
+
+    free(pin);
+    free(bestpin);
+    free(maxfl);
+    return min;
+}
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+
+// Helper function to calculate walking cost
+int dp_fw(int u, int d, int *dests, int nrid) {
+    int cost = 0;
+    for (int i = 0; i < nrid; i++) {
+        int dest = dests[i];
+        if (d == -1) {
+            if (dest > u) cost += (dest - u);
+        } else {
+            if (dest > u && dest <= d) {
+                int walk_up = dest - u;
+                int walk_down = d - dest;
+                cost += (walk_up < walk_down) ? walk_up : walk_down;
+            }
+        }
+    }
+    return cost;
+}
+
+int MinCostdp(int i, int j, int nfl, int *dests, int nrid, int **mem, int **km) {
+    int k, min = 200000000, n, laststop = 0;
+
+    // Base Case: i=0 (Walk from Ground Floor)
+    if (i == 0) {
+        int f = dp_fw(0, -1, dests, nrid);
+        mem[0][j] = f;
+        km[0][j] = 0;
+        return f;
+    }
+
+    if (mem[i][j] != -1) {
+        return mem[i][j];
+    }
+
+    // Recursive Step
+    for (k = 0; k <= j; k++) {
+        int prev_cost;
+
+        if (mem[i-1][k] != -1)
+            prev_cost = mem[i-1][k];
+        else
+            prev_cost = MinCostdp(i - 1, k, nfl, dests, nrid, mem, km);
+
+        n = prev_cost - dp_fw(k, -1, dests, nrid) + dp_fw(k, j, dests, nrid) + dp_fw(j, -1, dests, nrid);
+
+        if (n < min) {
+            min = n;
+            laststop = k;
+        }
+    }
+
+    mem[i][j] = min;
+    km[i][j] = laststop;
+    return min;
+}
+
+int dp_solve(int nrid, int nst, int *dests, int debug) {
+    int i, j, k;
+    int nfl = 0;
+
+    for (i = 0; i < nrid; i++) {
+        if (dests[i] > nfl) nfl = dests[i];
+    }
+
+    if (nst > nfl) nst = nfl;
+    if (nfl == 0) {
+        printf("No lift stops\n");
+        return 0;
+    }
+
+    int **mem = malloc((nst + 1) * sizeof(int *));
+    int **km = malloc((nst + 1) * sizeof(int *));
+
+    if (!mem || !km) {
+        fprintf(stderr, "Could not allocate memory\n");
+        return -1;
+    }
+
+    for (i = 0; i <= nst; i++) {
+        mem[i] = malloc((nfl + 1) * sizeof(int));
+        km[i] = malloc((nfl + 1) * sizeof(int));
+        if (!mem[i] || !km[i]) return -1;
+        for (j = 0; j <= nfl; j++) {
+            mem[i][j] = -1;
+            km[i][j] = 0;
+        }
+    }
+
+    int min_total = 200000000;
+    int global_last_stop = 0;
+
+    // Ensure we find the best 'last stop'
+    for (j = 1; j <= nfl; j++) {
+        k = MinCostdp(nst, j, nfl, dests, nrid, mem, km);
+        if (k < min_total) {
+            min_total = k;
+            global_last_stop = j;
+        }
+    }
+
+    if (debug) {
+        for (i = 0; i <= nst; i++) {
+            for (j = 1; j <= nfl; j++) {
+                if (mem[i][j] == -1) {
+                    MinCostdp(i, j, nfl, dests, nrid, mem, km);
+                }
+            }
+        }
+
+        for (i = 0; i <= nst; i++) {
+            for (j = 1; j <= nfl; j++) {
+                printf("%d ", mem[i][j]);
+            }
+            printf("\n");
+        }
+    }
+
+    if (nst > 0) {
+        printf("Lift stops are:");
+        int curr_stop = global_last_stop;
+        int curr_idx = nst;
+        km[0][nst] = curr_stop;
+        while (curr_idx > 1) {
+            int prev = km[curr_idx][curr_stop];
+            km[0][curr_idx - 1] = prev;
+            curr_stop = prev;
+            curr_idx--;
+        }
+        for (i = 1; i <= nst; i++) printf(" %d", km[0][i]);
+        putchar('\n');
+    } else {
+        printf("No lift stops\n");
+    }
+
+    printf("The minimum cost is: %d\n", min_total);
+
+    for (i = 0; i <= nst; i++) {
+        free(mem[i]);
+        free(km[i]);
+    }
+    free(mem);
+    free(km);
+
+    return min_total;
+}
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+
+// Prototypes for the different solving methods
+int brute_solve(int nrid, int nst, int *dests);
+int dp_solve(int nrid, int nst, int *dests, int debug);
+int memoize_solve(int nrid, int nst, int *dests);
+
+int main(int argc, char **argv) {
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <input-file> [--mode=MODE] [--debug]\n", argv[0]);
+        return 1;
+    }
+
+    const char *filename = argv[1];
+    const char *mode = "dp";
+    int debug = 0;
+
+    for (int i = 2; i < argc; ++i) {
+        if (strncmp(argv[i], "--mode=", 7) == 0) {
+            mode = argv[i] + 7;
+        } else if (strcmp(argv[i], "--debug") == 0) {
+            debug = 1;
+        }
+    }
+
+    FILE *f = fopen(filename, "r");
+    if (!f) {
+        fprintf(stderr, "Error opening '%s': %s\n", filename, strerror(errno));
+        return 1;
+    }
+
+    int numPeople = 0, numStops = 0;
+    if (fscanf(f, "%d", &numPeople) != 1) {
+        fprintf(stderr, "Invalid input file: missing numPeople\n");
+        fclose(f);
+        return 1;
+    }
+    if (fscanf(f, "%d", &numStops) != 1) {
+        fprintf(stderr, "Invalid input file: missing numStops\n");
+        fclose(f);
+        return 1;
+    }
+
+    if (numPeople < 0 || numStops < 0) {
+        fprintf(stderr, "Invalid sizes in input file\n");
+        fclose(f);
+        return 1;
+    }
+
+    int *dests = malloc(sizeof(int) * (size_t)numPeople);
+    if (!dests) {
+        fprintf(stderr, "Out of memory\n");
+        fclose(f);
+        return 1;
+    }
+
+    for (int i = 0; i < numPeople; ++i) {
+        if (fscanf(f, "%d", &dests[i]) != 1) {
+            fprintf(stderr, "Input file contains fewer destinations than numPeople\n");
+            free(dests);
+            fclose(f);
+            return 1;
+        }
+    }
+    fclose(f);
+
+    // Mode Selection
+    if (strcmp(mode, "brute") == 0) {
+        brute_solve(numPeople, numStops, dests);
+    }
+    else if (strcmp(mode, "dp") == 0) {
+        dp_solve(numPeople, numStops, dests, debug);
+    }
+    else if (strcmp(mode, "memoize") == 0) {
+        memoize_solve(numPeople, numStops, dests);
+    }
+    else {
+        dp_solve(numPeople, numStops, dests, debug);
+    }
+
+    free(dests);
+    return 0;
+}
